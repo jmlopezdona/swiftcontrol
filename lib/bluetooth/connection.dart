@@ -7,7 +7,9 @@ import 'package:swift_control/utils/requirements/android.dart';
 import 'package:universal_ble/universal_ble.dart';
 
 import '../bluetooth/ble.dart';
+import '../bluetooth/square_constants.dart';
 import 'devices/base_device.dart';
+import 'devices/square_device.dart';
 import 'messages/notification.dart';
 
 class Connection {
@@ -58,10 +60,17 @@ class Connection {
     isScanning.value = true;
     _actionStreams.add(LogNotification('Scanning for devices...'));
 
+    // Lista de servicios a buscar
+    final servicesToScan = [
+      BleUuid.ZWIFT_CUSTOM_SERVICE_UUID, 
+      BleUuid.ZWIFT_RIDE_CUSTOM_SERVICE_UUID,
+      SquareConstants.CHARACTERISTIC_UUID
+    ];
+
     // does not work on web, may not work on Windows
     if (!kIsWeb && !Platform.isWindows) {
       UniversalBle.getSystemDevices(
-        withServices: [BleUuid.ZWIFT_CUSTOM_SERVICE_UUID, BleUuid.ZWIFT_RIDE_CUSTOM_SERVICE_UUID],
+        withServices: servicesToScan,
       ).then((devices) async {
         final baseDevices = devices.mapNotNull(BaseDevice.fromScanResult).toList();
         if (baseDevices.isNotEmpty) {
@@ -70,14 +79,39 @@ class Connection {
       });
     }
 
+    // Realizar un escaneo más amplio para encontrar el dispositivo SQUARE
+    // Primero intentamos con los servicios específicos
     await UniversalBle.startScan(
-      scanFilter: ScanFilter(withServices: [BleUuid.ZWIFT_CUSTOM_SERVICE_UUID, BleUuid.ZWIFT_RIDE_CUSTOM_SERVICE_UUID]),
-      platformConfig: PlatformConfig(web: WebOptions(optionalServices: [BleUuid.ZWIFT_CUSTOM_SERVICE_UUID])),
+      scanFilter: ScanFilter(withServices: servicesToScan),
+      platformConfig: PlatformConfig(web: WebOptions(optionalServices: servicesToScan)),
     );
-    Future.delayed(Duration(seconds: 30)).then((_) {
+    
+    // Después de 10 segundos, si no encontramos el dispositivo SQUARE, realizamos un escaneo sin filtros
+    Future.delayed(Duration(seconds: 10)).then((_) async {
       if (isScanning.value) {
         UniversalBle.stopScan();
-        isScanning.value = false;
+        
+        // Verificar si ya encontramos el dispositivo SQUARE
+        final squareDevice = devices.firstOrNullWhere((d) => d.runtimeType.toString().contains('SquareDevice'));
+        if (squareDevice == null) {
+          _actionStreams.add(LogNotification('Performing broad scan to find SQUARE device...'));
+          
+          // Escaneo sin filtros para encontrar el dispositivo SQUARE
+          await UniversalBle.startScan(
+            scanFilter: ScanFilter(),
+            platformConfig: PlatformConfig(),
+          );
+          
+          // Detener el escaneo después de 20 segundos más
+          Future.delayed(Duration(seconds: 20)).then((_) {
+            if (isScanning.value) {
+              UniversalBle.stopScan();
+              isScanning.value = false;
+            }
+          });
+        } else {
+          isScanning.value = false;
+        }
       }
     });
   }

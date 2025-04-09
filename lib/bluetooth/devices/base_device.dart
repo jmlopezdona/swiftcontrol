@@ -7,6 +7,8 @@ import 'package:swift_control/bluetooth/ble.dart';
 import 'package:swift_control/bluetooth/devices/zwift_click.dart';
 import 'package:swift_control/bluetooth/devices/zwift_play.dart';
 import 'package:swift_control/bluetooth/devices/zwift_ride.dart';
+import 'package:swift_control/bluetooth/devices/square_device.dart';
+import 'package:swift_control/bluetooth/square_constants.dart';
 import 'package:swift_control/main.dart';
 import 'package:swift_control/utils/crypto/local_key_provider.dart';
 import 'package:swift_control/utils/crypto/zap_crypto.dart';
@@ -35,16 +37,24 @@ abstract class BaseDevice {
   static BaseDevice? fromScanResult(BleDevice scanResult) {
     // Use the name first as the "System Devices" and Web (android sometimes Windows) don't have manufacturer data
     final device = switch (scanResult.name) {
-      //'Zwift Ride' => ZwiftRide(scanResult), special case for Zwift Ride: we must only connect to the left controller
-      // https://www.makinolo.com/blog/2024/07/26/zwift-ride-protocol/
       'Zwift Play' => ZwiftPlay(scanResult),
       'Zwift Click' => ZwiftClick(scanResult),
+      'SQUARE' => SquareDevice(scanResult),
       _ => null,
     };
 
     if (device != null) {
       return device;
     } else {
+      // Verificar si el dispositivo tiene el servicio de SQUARE
+      // En lugar de verificar serviceUuids, simplemente creamos un SquareDevice
+      // si el nombre contiene "SQUARE" o es similar
+      if (scanResult.name != null && 
+          (scanResult.name!.toUpperCase().contains('SQUARE') || 
+           scanResult.name!.toUpperCase().contains('CONTROLLER'))) {
+        return SquareDevice(scanResult);
+      }
+      
       // otherwise use the manufacturer data to identify the device
       final manufacturerData = scanResult.manufacturerDataList;
       final data = manufacturerData.firstOrNullWhere((e) => e.companyId == Constants.ZWIFT_MANUFACTURER_ID)?.payload;
@@ -58,7 +68,6 @@ abstract class BaseDevice {
         DeviceType.click => ZwiftClick(scanResult),
         DeviceType.playRight => ZwiftPlay(scanResult),
         DeviceType.playLeft => ZwiftPlay(scanResult),
-        //DeviceType.rideRight => ZwiftRide(scanResult), // see comment above
         DeviceType.rideLeft => ZwiftRide(scanResult),
         _ => null,
       };
